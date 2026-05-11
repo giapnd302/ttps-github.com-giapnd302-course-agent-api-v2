@@ -49,7 +49,7 @@ async def interact_with_plan(request: ChatRequest):
             if current_revisions > 0:
                 session.state["plan_status"] = "Revising"
             
-            await session_service.update_session(session)
+            #await session_service.update_session(session)
 
         # 2. ĐÓNG GÓI TIN NHẮN THEO CHUẨN ADK
         content = types.Content(role='user', parts=[types.Part(text=request.message)])
