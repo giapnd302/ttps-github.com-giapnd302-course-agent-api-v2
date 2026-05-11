@@ -1,57 +1,79 @@
 from fastapi import FastAPI
 from app.models import ChatRequest
 from app.agent import session_service, course_agent
+from google.adk.runners import Runner   # Thư viện Người quản lý
+from google.genai import types          # Thư viện định dạng tin nhắn của Google
 import uuid
 
 app = FastAPI(title="Course Agent API (Powered by Google ADK)")
 
 APP_NAME = "course_implementation_app"
 
+# KHỞI TẠO RUNNER (Trái tim điều phối của hệ thống ADK)
+agent_runner = Runner(
+    app_name=APP_NAME,
+    agent=course_agent,
+    session_service=session_service
+)
+
 @app.post("/api/v1/chat-plan")
 async def interact_with_plan(request: ChatRequest):
     try:
-        # 1. TẠO HOẶC LẤY SESSION (Start or Resume)
         current_session_id = request.session_id
         
+        # 1. TẠO HOẶC LẤY SESSION ĐỂ CẬP NHẬT TRẠNG THÁI (STATE)
         if not current_session_id:
-            # Tạo mới nếu chưa có
             current_session_id = str(uuid.uuid4())
             session = await session_service.create_session(
                 app_name=APP_NAME,
                 user_id=request.user_id,
                 session_id=current_session_id,
-                state={"revision_count": 0, "plan_status": "Drafting"} # Khởi tạo State
+                state={"revision_count": 0, "plan_status": "Drafting"} 
             )
         else:
-            # Lấy lại session cũ
             session = await session_service.get_session(
                 app_name=APP_NAME,
                 user_id=request.user_id,
                 session_id=current_session_id
             )
+            
+            if session is None:
+                return {
+                    "status": "error", 
+                    "message": f"Không tìm thấy dữ liệu cho session_id: '{current_session_id}'. Vui lòng để trống session_id để tạo mới."
+                }
+                
+            # Cập nhật State (Trạng thái)
+            current_revisions = session.state.get("revision_count", 0)
+            session.state["revision_count"] = current_revisions + 1
+            if current_revisions > 0:
+                session.state["plan_status"] = "Revising"
+            
+            await session_service.update_session(session)
 
-        # 2. CẬP NHẬT STATE (Tùy chọn: Tăng biến đếm số lần sửa)
-        current_revisions = session.state.get("revision_count", 0)
-        session.state["revision_count"] = current_revisions + 1
-        if current_revisions > 0:
-            session.state["plan_status"] = "Revising"
+        # 2. ĐÓNG GÓI TIN NHẮN THEO CHUẨN ADK
+        content = types.Content(role='user', parts=[types.Part(text=request.message)])
 
-        # 3. CHẠY AGENT VỚI SESSION NÀY
-        # Agent sẽ tự động đọc lịch sử (events) và trạng thái (state) từ session
-        response = await course_agent.run(
-            session=session,
-            user_message=request.message
+        # 3. CHẠY AGENT THÔNG QUA "RUNNER" THAY VÌ GỌI TRỰC TIẾP
+        events = agent_runner.run_async(
+            user_id=request.user_id,
+            session_id=current_session_id,
+            new_message=content
         )
         
-        # 4. LƯU LẠI SESSION XUỐNG SERVICE (Save Interaction)
-        await session_service.update_session(session)
+        # 4. CHỜ AGENT CHẠY XONG VÀ LẤY KẾT QUẢ CUỐI CÙNG
+        final_answer = ""
+        async for event in events:
+            # ADK sẽ nhả ra nhiều luồng sự kiện, mình chỉ lấy kết quả Final
+            if hasattr(event, 'is_final_response') and event.is_final_response():
+                if event.content and event.content.parts:
+                    final_answer = event.content.parts[0].text
 
         return {
             "status": "success",
-            "session_id": session.id,
-            "state_info": session.state, # Trả về state để Client (Frontend) thấy
+            "session_id": current_session_id,
             "data": {
-                "response": response.text
+                "response": final_answer
             }
         }
     except Exception as e:
