@@ -78,3 +78,70 @@ async def interact_with_plan(request: ChatRequest):
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
+    
+    # ==========================================
+# CÁC API MỚI PHỤC VỤ CHO FRONTEND UI
+# ==========================================
+
+@app.get("/api/v1/sessions/{user_id}")
+async def get_user_sessions(user_id: str):
+    """API 1: Lấy danh sách lịch sử các cuộc trò chuyện (Phục vụ cho Sidebar bên trái)"""
+    try:
+        # Lấy danh sách session từ Database của ADK
+        sessions = await session_service.list_sessions(app_name=APP_NAME, user_id=user_id)
+        
+        session_list = []
+        # Chuyển đổi dữ liệu và bóc tách những thông tin cần thiết
+        for s in sessions:
+            session_list.append({
+                "session_id": s.id,
+                "last_update_time": s.last_update_time,
+                "state": s.state # Trả về state để UI biết trạng thái kế hoạch
+            })
+            
+        # Sắp xếp cuộc trò chuyện mới nhất lên đầu tiên
+        session_list.sort(key=lambda x: x["last_update_time"], reverse=True)
+
+        return {"status": "success", "data": session_list}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/v1/sessions/{user_id}/{session_id}")
+async def get_session_history(user_id: str, session_id: str):
+    """API 2: Lấy chi tiết lịch sử tin nhắn (Phục vụ cho màn hình Chat ở giữa)"""
+    try:
+        session = await session_service.get_session(
+            app_name=APP_NAME,
+            user_id=user_id,
+            session_id=session_id
+        )
+        
+        if session is None:
+            return {"status": "error", "message": "Không tìm thấy phiên trò chuyện này!"}
+
+        history = []
+        # Duyệt qua lịch sử (events) được lưu trong ADK Database
+        for event in session.events:
+            # Kiểm tra xem event có chứa nội dung text không
+            if hasattr(event, 'content') and event.content:
+                role = getattr(event.content, 'role', 'unknown')
+                
+                text = ""
+                if hasattr(event.content, 'parts') and event.content.parts:
+                    text = event.content.parts[0].text
+                
+                # Chỉ lọc lấy tin nhắn của người dùng (user) và AI (model)
+                if role in ['user', 'model'] and text:
+                    history.append({
+                        "role": role,
+                        "text": text
+                    })
+
+        return {
+            "status": "success",
+            "session_id": session.id,
+            "data": {"history": history}
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
