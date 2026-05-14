@@ -3,9 +3,21 @@ from app.models import ChatRequest
 from app.agent import session_service, course_agent
 from google.adk.runners import Runner   # Thư viện Người quản lý
 from google.genai import types          # Thư viện định dạng tin nhắn của Google
+from fastapi.middleware.cors import CORSMiddleware
 import uuid
 
 app = FastAPI(title="Course Agent API (Powered by Google ADK)")
+# ======== THÊM ĐOẠN NÀY ĐỂ MỞ CỬA CHO FRONTEND GỌI API ========
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Cho phép mọi nguồn gọi đến (để test cho dễ)
+    allow_credentials=True,
+    allow_methods=["*"], # Cho phép GET, POST...
+    allow_headers=["*"],
+)
+# ===============================================================
+
+# ... (Giữ nguyên các code bên dưới)
 
 APP_NAME = "course_implementation_app"
 
