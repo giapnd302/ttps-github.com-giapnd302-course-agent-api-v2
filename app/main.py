@@ -86,6 +86,35 @@ async def interact_with_plan(request: ChatRequest):
             if hasattr(event, 'is_final_response') and event.is_final_response():
                 if event.content and event.content.parts:
                     final_answer = event.content.parts[0].text
+                    final_answer = ""
+        async for event in events:
+            if hasattr(event, 'is_final_response') and event.is_final_response():
+                if event.content and event.content.parts:
+                    final_answer = event.content.parts[0].text
+
+        # ==========================================
+        # ĐẾM ƯỚC LƯỢNG VÀ LƯU TOKEN VÀO DATABASE
+        # (1 từ ~ 1.3 token)
+        # ==========================================
+        word_count = len(request.message.split()) + len(final_answer.split())
+        estimated_tokens = int(word_count * 1.3)
+
+        async with aiosqlite.connect("./course_agent.db") as db:
+            await db.execute("""
+                INSERT INTO token_usage (username, total_tokens) 
+                VALUES (?, ?) 
+                ON CONFLICT(username) DO UPDATE SET total_tokens = total_tokens + ?
+            """, (request.user_id, estimated_tokens, estimated_tokens))
+            await db.commit()
+        # ==========================================
+
+        return {
+            "status": "success",
+            "session_id": current_session_id,
+            "data": {
+                "response": final_answer
+            }
+        }
 
         return {
             "status": "success",
@@ -164,14 +193,11 @@ async def get_session_history(user_id: str, session_id: str):
     except Exception as e:
         return {"status": "error", "message": str(e)}
     
-    # ==========================================
-# CÁC API XÁC THỰC NGƯỜI DÙNG (AUTH)
-# ==========================================
-
-# Sự kiện chạy 1 lần khi bật Server: Tự động tạo Bảng chứa User trong DB
+    # Sự kiện chạy 1 lần khi bật Server: Tự động tạo Bảng chứa User và Bảng Token trong DB
 @app.on_event("startup")
 async def startup_event():
     async with aiosqlite.connect("./course_agent.db") as db:
+        # 1. Bảng lưu tài khoản
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,45 +205,25 @@ async def startup_event():
                 password_hash TEXT NOT NULL
             )
         """)
+        
+        # 2. Bảng lưu số Token đã dùng
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS token_usage (
+                username TEXT PRIMARY KEY,
+                total_tokens INTEGER DEFAULT 0
+            )
+        """)
+        
         await db.commit()
 
-@app.post("/api/v1/register")
-async def register(user: UserCreate):
-    """API Đăng ký tài khoản"""
-    try:
-        async with aiosqlite.connect("./course_agent.db") as db:
-            # 1. Kiểm tra xem tên đăng nhập bị trùng không
-            cursor = await db.execute("SELECT id FROM users WHERE username = ?", (user.username,))
-            if await cursor.fetchone():
-                return {"status": "error", "message": "Tên đăng nhập đã tồn tại!"}
-            
-            # 2. Mã hóa password và lưu vào Database
-            hashed_pw = get_password_hash(user.password)
-            await db.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (user.username, hashed_pw))
-            await db.commit()
-            
-            return {"status": "success", "message": "Đăng ký thành công!"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.post("/api/v1/login")
-async def login(user: UserCreate):
-    """API Đăng nhập và Cấp thẻ JWT"""
+        @app.get("/api/v1/tokens/{username}")
+async def get_token_usage(username: str):
+    """API Xem số lượng Token User đã tiêu thụ"""
     async with aiosqlite.connect("./course_agent.db") as db:
-        # 1. Tìm User trong Database
-        cursor = await db.execute("SELECT username, password_hash FROM users WHERE username = ?", (user.username,))
+        cursor = await db.execute("SELECT total_tokens FROM token_usage WHERE username = ?", (username,))
         row = await cursor.fetchone()
-        
-        # 2. Kiểm tra tài khoản và so sánh mật khẩu
-        if not row or not verify_password(user.password, row[1]):
-            return {"status": "error", "message": "Sai tên đăng nhập hoặc mật khẩu!"}
-        
-        # 3. Mật khẩu ĐÚNG -> Cấp thẻ JWT Token
-        access_token = create_access_token(data={"sub": row[0]})
-        
         return {
             "status": "success", 
-            "access_token": access_token, 
-            "username": row[0],
-            "message": "Đăng nhập thành công!"
+            "username": username, 
+            "total_tokens_used": row[0] if row else 0
         }
