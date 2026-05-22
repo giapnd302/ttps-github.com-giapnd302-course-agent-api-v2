@@ -4,4 +4,7 @@ pydantic
 google-generativeai
 python-dotenv
 aiosqlite
-sqlalchemy 
+sqlalchemy
+PyJWT
+passlib
+bcrypt
