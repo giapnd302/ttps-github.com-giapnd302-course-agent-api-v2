@@ -216,14 +216,20 @@ async def startup_event():
         
         await db.commit()
 
-        @app.get("/api/v1/tokens/{username}")
+# ==========================================
+# API XEM SỐ LƯỢNG TOKEN
+# ==========================================
+@app.get("/api/v1/tokens/{username}")
 async def get_token_usage(username: str):
     """API Xem số lượng Token User đã tiêu thụ"""
-    async with aiosqlite.connect("./course_agent.db") as db:
-        cursor = await db.execute("SELECT total_tokens FROM token_usage WHERE username = ?", (username,))
-        row = await cursor.fetchone()
-        return {
-            "status": "success", 
-            "username": username, 
-            "total_tokens_used": row[0] if row else 0
-        }
+    try:
+        async with aiosqlite.connect("./course_agent.db") as db:
+            cursor = await db.execute("SELECT total_tokens FROM token_usage WHERE username = ?", (username,))
+            row = await cursor.fetchone()
+            return {
+                "status": "success", 
+                "username": username, 
+                "total_tokens_used": row[0] if row else 0
+            }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}        
