@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Cấu hình "Chữ ký bí mật" (Secret Key) để chống làm giả thẻ Token
-SECRET_KEY = os.getenv("SECRET_KEY", "mot_chuoi_bi_mat_sieu_kho_doan_cua_kpim_2024")
+SECRET_KEY = os.getenv("SECRET_KEY", "mot_chuoi_bi_mat_sieu_kho_doan_cua_kpim_2026")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # Thẻ Token có hạn sử dụng 7 ngày
 
